@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Secretos y entorno
+.env
+.env.*
+
+# Datos y almacenes locales (se regeneran; no van al repo)
+data/
+.chroma/
+.lancedb/
+*.kuzu/
+*.sqlite
+*.db
+
+# Chainlit
+.chainlit/
+.files/
+chainlit.md
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,31 @@
+[project]
+name = "justice-league"
+version = "0.0.1"
+description = "Agente local de IA para ciencia de datos: un equipo de agentes sobre Ollama, con RAG y grafos de conocimiento"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+# Interfaz web (Atalaya). Se instala con: uv sync --extra atalaya
+atalaya = ["chainlit>=2.0"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[project.scripts]
+jl = "justice_league.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/justice_league"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
