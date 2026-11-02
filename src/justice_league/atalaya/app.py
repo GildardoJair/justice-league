@@ -62,12 +62,25 @@ async def on_message(message: cl.Message) -> None:
     agent = cl.user_session.get("agent")
     events = agent.run(message.content)
 
+    streaming: cl.Message | None = None
     try:
         while True:
             # Cada `next` corre en un hilo; así el bucle de eventos queda libre para los botones.
             event = await cl.make_async(next)(events, None)
             if event is None:
                 break
+            if event.kind == "token":
+                streaming = streaming or cl.Message(content="")
+                await streaming.stream_token(event.text)
+                continue
+            if event.kind == "answer" and streaming is not None:
+                streaming.content = event.text
+                await streaming.update()
+                streaming = None
+                continue
+            if streaming is not None:  # texto previo a una herramienta: se cierra antes del paso
+                await streaming.update()
+                streaming = None
             if event.kind == "tool_result":
                 async with cl.Step(name=event.name, type="tool") as step:
                     step.input = json.dumps(event.args, ensure_ascii=False)

@@ -74,12 +74,16 @@ Límite conocido: esto valida rutas, no aísla procesos. Cuando llegue la ejecuc
 ## Hoja de ruta
 
 - [x] **Fase 0, esqueleto:** núcleo, herramientas de archivos, guardián, CLI y Atalaya.
-  - [ ] Respuestas en *streaming* (hoy se muestran completas).
+  - [x] Respuestas en *streaming* (CLI y Atalaya; falta probarlo con Ollama real).
   - [ ] Medir contexto máximo del 14B en 12 GB de VRAM (ver EXPERIMENTS.md).
 - [ ] **Fase 1, RAG básico:** ingesta → chunking → embeddings → búsqueda → respuesta con citas.
 - [ ] **Fase 2, RAG mejorado:** búsqueda híbrida, reranking y evaluación.
 - [ ] **Fase 3, grafo:** extracción de entidades y relaciones, Cypher, GraphRAG.
 - [ ] **Fase 4, agencia:** más roles, delegación entre agentes, ejecución de código aislada, MCP, memoria.
 - [ ] **Fase 5, escalar:** modelos mayores, cuantización, observabilidad, quizá fine-tuning (LoRA).
+
+### Temas por tratar
+
+- Herramienta de estado del hardware: hoy el agente no puede consultar GPU/VRAM, CPU, RAM ni disco (p. ej. envolver `nvidia-smi`/`ollama ps` en una herramienta de solo lectura). Útil para E-001 y para que el agente sepa cuánta VRAM libre tiene antes de cambiar de modelo.
 
 Los nombres de personajes de DC son un homenaje personal y se usan como nombres internos.

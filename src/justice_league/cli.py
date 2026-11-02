@@ -14,6 +14,7 @@ from typing import Annotated, Any
 import httpx
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -72,8 +73,22 @@ def chat(
             console.print("[dim]Conversación reiniciada.[/]")
             continue
 
+        live: Live | None = None
+        buffer = ""
         try:
             for event in agent.run(text):
+                if event.kind == "token":
+                    if live is None:
+                        live = Live(console=console, refresh_per_second=12, vertical_overflow="visible")
+                        live.start()
+                    buffer += event.text
+                    live.update(Panel(Markdown(buffer), title=active.name, border_style="blue"))
+                    continue
+                if live is not None:  # cualquier otro evento cierra el panel en vivo
+                    live.stop()
+                    live, buffer = None, ""
+                    if event.kind == "answer":
+                        continue  # ya se mostró token a token
                 if event.kind == "tool_call":
                     console.print(f"[dim]🔧 {event.name}({event.args})[/]")
                 elif event.kind == "tool_result":
@@ -85,6 +100,9 @@ def chat(
                     console.print(f"[red]{event.text}[/]")
         except OllamaError as exc:
             console.print(f"[red]{exc}[/]")
+        finally:
+            if live is not None:
+                live.stop()
 
 
 @app.command()

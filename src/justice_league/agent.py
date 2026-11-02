@@ -6,24 +6,25 @@
 
 Concepto: *generador como flujo de eventos*. `run()` no imprime nada ni sabe de
 interfaces: va "emitiendo" eventos (llamada a herramienta, resultado, respuesta)
-y quien lo consuma decide cómo mostrarlos. La CLI los pinta con Rich; Atalaya,
+y quien lo consuma decide cómo mostrarlos. Los eventos "token" son fragmentos de
+texto en vivo; "answer" sigue llegando al final con el texto completo. La CLI los pinta con Rich; Atalaya,
 como pasos del chat. Ese es el límite entre el núcleo y los adaptadores.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .llm import ChatModel, ToolCall
+from .llm import ChatModel, ModelReply, ToolCall
 from .permissions import Approver
 from .tools import ToolRegistry
 
 
 @dataclass
 class Event:
-    kind: Literal["tool_call", "tool_result", "answer", "error"]
+    kind: Literal["token", "tool_call", "tool_result", "answer", "error"]
     text: str = ""
     name: str = ""
     args: dict[str, Any] = field(default_factory=dict)
@@ -54,7 +55,7 @@ class Agent:
         # `max_steps` evita bucles infinitos: un modelo chico puede quedarse llamando
         # la misma herramienta una y otra vez.
         for _ in range(self.max_steps):
-            reply = self.model.chat(self.messages, self.tools.specs())
+            reply = yield from self._ask_model()
 
             assistant_message: dict[str, Any] = {"role": "assistant", "content": reply.content}
             if reply.tool_calls:
@@ -74,6 +75,19 @@ class Agent:
                 yield Event("tool_result", result, call.name, call.arguments)
 
         yield Event("error", f"Me detuve tras {self.max_steps} pasos sin llegar a una respuesta.")
+
+    def _ask_model(self) -> Generator[Event, None, ModelReply]:
+        """Pide la respuesta al modelo; si sabe hacer streaming, reenvía cada fragmento como evento "token"."""
+        specs = self.tools.specs()
+        stream = getattr(self.model, "stream", None)
+        if stream is None:
+            return self.model.chat(self.messages, specs)
+        for item in stream(self.messages, specs):
+            if isinstance(item, str):
+                yield Event("token", item)
+            else:
+                return item
+        raise RuntimeError("El stream del modelo terminó sin respuesta final.")
 
     def _dispatch(self, call: ToolCall) -> str:
         """Ejecuta una llamada. Los errores vuelven al modelo como texto para que pueda corregirse."""

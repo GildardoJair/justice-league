@@ -119,3 +119,17 @@ def test_roles_por_defecto_cargan():
     assert settings.roles["superman"].enabled
     assert {"superman", "batman", "terrific", "wonder_woman", "robin"} <= set(settings.roles)
     assert sum(r.enabled for r in settings.roles.values()) == 1  # Fase 0: solo Superman
+
+
+class FakeStreamModel:
+    def stream(self, messages, tools=None):
+        yield "ho"
+        yield "la"
+        yield ModelReply("hola")
+
+
+def test_con_streaming_emite_tokens_y_luego_la_respuesta(tmp_path):
+    agent = Agent(FakeStreamModel(), default_tools(Sandbox(tmp_path)), approve_all, "sistema")
+    eventos = list(agent.run("hey"))
+    assert [(e.kind, e.text) for e in eventos] == [("token", "ho"), ("token", "la"), ("answer", "hola")]
+    assert agent.messages[-1] == {"role": "assistant", "content": "hola"}
