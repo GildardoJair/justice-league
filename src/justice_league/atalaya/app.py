@@ -118,6 +118,8 @@ async def on_message(message: cl.Message) -> None:
                     step.output = event.text
             elif event.kind == "answer":
                 await cl.Message(content=event.text).send()
+            elif event.kind == "notice":
+                await cl.Message(content=f"ℹ️ {event.text}").send()
             elif event.kind == "error":
                 await cl.Message(content=f"⚠️ {event.text}").send()
     except OllamaError as exc:

@@ -31,7 +31,7 @@ console = Console()
 
 
 def _approve_in_terminal(name: str, args: dict[str, Any], preview: str | None) -> bool:
-    body = Syntax(preview, "diff", theme="ansi_dark") if preview else str(args)
+    body = Syntax(preview, "diff", theme="ansi_dark", word_wrap=True) if preview else str(args)
     console.print(Panel(body, title=f"🛡️  Permiso solicitado: {name}", border_style="yellow"))
     return typer.confirm("¿Aprobar?", default=False)
 
@@ -99,6 +99,8 @@ def chat(
                     status.start()  # el modelo vuelve a pensar con el resultado
                 elif event.kind == "answer":
                     console.print(Panel(Markdown(event.text), title=active.name, border_style="blue"))
+                elif event.kind == "notice":
+                    console.print(f"[yellow]{event.text}[/]")
                 else:
                     console.print(f"[red]{event.text}[/]")
         except OllamaError as exc:

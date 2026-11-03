@@ -29,7 +29,7 @@ MAX_REPEATED_CALLS = 2
 
 @dataclass
 class Event:
-    kind: Literal["token", "stats", "tool_call", "tool_result", "answer", "error"]
+    kind: Literal["token", "stats", "notice", "tool_call", "tool_result", "answer", "error"]
     text: str = ""
     name: str = ""
     args: dict[str, Any] = field(default_factory=dict)
@@ -48,15 +48,45 @@ class Agent:
         self.tools = tools
         self.approve = approve
         self.max_steps = max_steps
+        self._notice = ""
         # El historial vive en el agente: una instancia = una conversación.
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
     def reset(self) -> None:
         self.messages = self.messages[:1]
+        self._notice = ""
+        if self.tools.staging:
+            self.tools.staging.discard()
 
     def run(self, user_text: str) -> Iterator[Event]:
-        self.messages.append({"role": "user", "content": user_text})
+        staging = self.tools.staging
+        if staging:
+            staging.discard()  # restos de un turno interrumpido: nunca se aprobaron
+        # Aviso sobre el desenlace del turno anterior (cambios aplicados o rechazados), para que
+        # el modelo no crea otra cosa. Va dentro del mensaje del usuario para no romper la alternancia.
+        text = f"{self._notice}\n\n{user_text}" if self._notice else user_text
+        self._notice = ""
+        self.messages.append({"role": "user", "content": text})
 
+        yield from self._turn()
+        yield from self._flush()
+
+    def _flush(self) -> Iterator[Event]:
+        """Fin del turno: si el modelo dejó cambios preparados, pide UNA aprobación con el diff combinado."""
+        staging = self.tools.staging
+        if staging is None or not staging.pending():
+            return
+        names = ", ".join(staging.names())
+        if self.approve("aplicar_cambios", {"archivos": staging.names()}, staging.diff()):
+            staging.apply()
+            yield Event("notice", f"Cambios aplicados: {names}")
+            self._notice = f"[Sistema: el usuario aprobó y se aplicaron los cambios en {names}.]"
+        else:
+            staging.discard()
+            yield Event("notice", "Cambios descartados: no se escribió nada.")
+            self._notice = f"[Sistema: el usuario rechazó los cambios en {names}; no se escribió nada. No insistas: pregunta qué prefiere.]"
+
+    def _turn(self) -> Iterator[Event]:
         # Concepto: *cortafuegos de repetición*. Un modelo chico a veces repite la misma
         # llamada fallida una y otra vez. Aquí recordamos qué llamadas fallaron en este turno.
         failed: dict[str, str] = {}

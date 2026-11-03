@@ -59,24 +59,56 @@ def test_escritura_aprobada(tmp_path):
 
 def test_escritura_denegada_no_toca_el_disco_y_el_modelo_lo_sabe(tmp_path):
     agent, model = hacer_agente(
-        tmp_path, [llamada("write_file", path="n.txt", content="hola"), ModelReply("ok, no lo hago")], approve=deny_all
+        tmp_path, [llamada("write_file", path="n.txt", content="hola"), ModelReply("preparé n.txt")], approve=deny_all
     )
-    list(agent.run("crea n.txt"))
+    eventos = list(agent.run("crea n.txt"))
     assert not (tmp_path / "n.txt").exists()
-    assert model.seen[1][-1]["content"].startswith("DENEGADO")
+    assert eventos[-1].kind == "notice" and "descartados" in eventos[-1].text
+    # En el turno siguiente el modelo recibe el aviso de que se rechazó.
+    model.replies.append(ModelReply("ok"))
+    list(agent.run("gracias"))
+    assert "rechazó" in model.seen[-1][-1]["content"]
 
 
-def test_el_approver_recibe_el_diff(tmp_path):
-    recibido = {}
+def test_el_approver_recibe_un_solo_diff_combinado(tmp_path):
+    recibido = []
 
     def approver(name, args, preview):
-        recibido.update(name=name, preview=preview)
+        recibido.append((name, args, preview))
         return False
 
     (tmp_path / "a.txt").write_text("uno\n")
-    agent, _ = hacer_agente(tmp_path, [llamada("write_file", path="a.txt", content="dos\n"), ModelReply("ok")], approver)
+    agent, _ = hacer_agente(
+        tmp_path,
+        [
+            llamada("write_file", path="a.txt", content="dos\n"),
+            llamada("write_file", path="b.txt", content="nuevo\n"),
+            ModelReply("listo"),
+        ],
+        approver,
+    )
     list(agent.run("cambia"))
-    assert recibido["name"] == "write_file" and "+dos" in recibido["preview"]
+    assert len(recibido) == 1  # una sola aprobación, no una por edición
+    name, args, preview = recibido[0]
+    assert name == "aplicar_cambios" and args["archivos"] == ["a.txt", "b.txt"]
+    assert "+dos" in preview and "+nuevo" in preview
+
+
+def test_sin_cambios_preparados_no_se_pide_aprobacion(tmp_path):
+    llamadas = []
+    agent, _ = hacer_agente(tmp_path, [llamada("list_dir"), ModelReply("nada")], lambda *a: llamadas.append(a) or True)
+    list(agent.run("x"))
+    assert llamadas == []
+
+
+def test_diez_ediciones_una_aprobacion_y_el_disco_cambia_al_final(tmp_path):
+    (tmp_path / "a.txt").write_text("0\n")
+    pasos = [llamada("edit_file", path="a.txt", old=str(i), new=str(i + 1)) for i in range(10)]
+    aprobaciones = []
+    agent, _ = hacer_agente(tmp_path, pasos + [ModelReply("hecho")], lambda *a: aprobaciones.append(a) or True, max_steps=12)
+    list(agent.run("incrementa"))
+    assert len(aprobaciones) == 1
+    assert (tmp_path / "a.txt").read_text() == "10\n"
 
 
 def test_herramienta_inexistente_se_devuelve_como_error_recuperable(tmp_path):

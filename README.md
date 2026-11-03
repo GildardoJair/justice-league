@@ -66,7 +66,8 @@ Pruebas (no necesitan Ollama ni GPU): `uv run pytest`
 El agente escribe archivos, así que desde el día uno:
 
 - **Sandbox de rutas:** solo ve y toca la carpeta de trabajo (bloquea `../` y symlinks que escapen). `.git` es de solo lectura.
-- **Aprobación humana:** toda escritura (`write_file`, `edit_file`) muestra un diff y espera tu sí.
+- **Aprobación humana:** las escrituras (`write_file`, `edit_file`) no tocan el disco: quedan preparadas en memoria (el agente ve su versión nueva) y, al terminar el turno, ves **un solo diff combinado** y apruebas o rechazas todo. Si un `.py` quedaría con error de sintaxis, el diff lo avisa con ⚠️.
+- **Cortafuegos de repetición:** si el modelo repite una llamada idéntica que ya falló, no se ejecuta; si insiste, se corta el turno.
 - **Límite de pasos:** el bucle se corta tras 10 vueltas.
 
 Límite conocido: esto valida rutas, no aísla procesos. Cuando llegue la ejecución de código (Fase 4) habrá que aislarla de verdad (contenedor o usuario sin privilegios).
