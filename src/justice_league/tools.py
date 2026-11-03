@@ -66,6 +66,27 @@ def _diff(old: str, new: str, label: str) -> str:
     return "".join(lines) or "(sin cambios)"
 
 
+def _syntax_error(path: str, text: str) -> str | None:
+    """Si `path` es un .py con sintaxis inválida, describe el error. `compile` solo analiza: no ejecuta nada."""
+    if not path.endswith(".py"):
+        return None
+    try:
+        compile(text, path, "exec")
+    except SyntaxError as exc:
+        return f"línea {exc.lineno}: {exc.msg}"
+    return None
+
+
+def _syntax_warning(path: str, text: str) -> str:
+    error = _syntax_error(path, text)
+    return f"\nAVISO: el archivo quedó con un error de sintaxis ({error}). Léelo y corrígelo antes de seguir." if error else ""
+
+
+def _syntax_note(path: str, text: str) -> str:
+    error = _syntax_error(path, text)
+    return f"\n⚠️ Con este cambio el archivo tendría un error de sintaxis ({error})." if error else ""
+
+
 def default_tools(sandbox: Sandbox) -> ToolRegistry:
     """Herramientas de archivos de la Fase 0. Todo pasa por el sandbox."""
 
@@ -92,12 +113,12 @@ def default_tools(sandbox: Sandbox) -> ToolRegistry:
         target = sandbox.resolve_for_write(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-        return f"OK: escrito {sandbox.display(target)} ({len(content)} caracteres)"
+        return f"OK: escrito {sandbox.display(target)} ({len(content)} caracteres)" + _syntax_warning(path, content)
 
     def write_preview(path: str, content: str) -> str:
         target = sandbox.resolve_for_write(path)
         old = target.read_text(encoding="utf-8") if target.is_file() else ""
-        return _diff(old, content, sandbox.display(target))
+        return _diff(old, content, sandbox.display(target)) + _syntax_note(path, content)
 
     def edit_file(path: str, old: str, new: str) -> str:
         target = sandbox.resolve_for_write(path)
@@ -107,13 +128,15 @@ def default_tools(sandbox: Sandbox) -> ToolRegistry:
             return "ERROR: el texto `old` no aparece en el archivo"
         if count > 1:
             return f"ERROR: `old` aparece {count} veces; incluye más contexto para que sea único"
-        target.write_text(text.replace(old, new, 1), encoding="utf-8")
-        return f"OK: editado {sandbox.display(target)}"
+        result = text.replace(old, new, 1)
+        target.write_text(result, encoding="utf-8")
+        return f"OK: editado {sandbox.display(target)}" + _syntax_warning(path, result)
 
     def edit_preview(path: str, old: str, new: str) -> str:
         target = sandbox.resolve_for_write(path)
         text = target.read_text(encoding="utf-8")
-        return _diff(text, text.replace(old, new, 1), sandbox.display(target))
+        result = text.replace(old, new, 1)
+        return _diff(text, result, sandbox.display(target)) + _syntax_note(path, result)
 
     def obj(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
         return {"type": "object", "properties": properties, "required": required}

@@ -46,3 +46,27 @@ def test_las_herramientas_respetan_el_sandbox(tools):
         tools.get("read_file").fn("../../etc/passwd")
     with pytest.raises(SandboxError):
         tools.get("write_file").fn("/tmp/fuera.txt", "x")
+
+
+def test_write_py_con_sintaxis_invalida_avisa(tools):
+    resultado = tools.get("write_file").fn("a.py", "def (:\n")
+    assert resultado.startswith("OK") and "AVISO" in resultado and "sintaxis" in resultado
+
+
+def test_write_py_valido_no_avisa(tools):
+    assert "AVISO" not in tools.get("write_file").fn("a.py", "x = 1\n")
+
+
+def test_solo_valida_archivos_py(tools):
+    assert "AVISO" not in tools.get("write_file").fn("a.txt", "def (:\n")
+
+
+def test_edit_que_rompe_el_py_avisa_y_el_preview_tambien(tools, tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    edit = tools.get("edit_file")
+    assert "⚠️" in edit.preview("a.py", "x = 1", "x = (")
+    assert "AVISO" in edit.fn("a.py", "x = 1", "x = (")
+
+
+def test_preview_sin_error_no_lleva_advertencia(tools):
+    assert "⚠️" not in tools.get("write_file").preview("a.py", "x = 1\n")

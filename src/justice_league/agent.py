@@ -13,6 +13,7 @@ como pasos del chat. Ese es el límite entre el núcleo y los adaptadores.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -20,6 +21,10 @@ from typing import Any, Literal
 from .llm import ChatModel, ModelReply, ToolCall
 from .permissions import Approver
 from .tools import ToolRegistry
+
+
+# Cuántas veces se tolera que el modelo insista con una llamada idéntica que ya falló.
+MAX_REPEATED_CALLS = 2
 
 
 @dataclass
@@ -52,6 +57,11 @@ class Agent:
     def run(self, user_text: str) -> Iterator[Event]:
         self.messages.append({"role": "user", "content": user_text})
 
+        # Concepto: *cortafuegos de repetición*. Un modelo chico a veces repite la misma
+        # llamada fallida una y otra vez. Aquí recordamos qué llamadas fallaron en este turno.
+        failed: dict[str, str] = {}
+        blocked = 0
+
         # `max_steps` evita bucles infinitos: un modelo chico puede quedarse llamando
         # la misma herramienta una y otra vez.
         for _ in range(self.max_steps):
@@ -72,9 +82,22 @@ class Agent:
 
             for call in reply.tool_calls:
                 yield Event("tool_call", name=call.name, args=call.arguments)
-                result = self._dispatch(call)
+                key = f"{call.name}:{json.dumps(call.arguments, sort_keys=True, default=str)}"
+                if key in failed:
+                    blocked += 1
+                    result = (
+                        f"REPETIDO: ya llamaste a '{call.name}' con estos mismos argumentos y falló ({failed[key][:150]}). "
+                        "No lo repitas: prueba otro enfoque o explícale el problema al usuario."
+                    )
+                else:
+                    result = self._dispatch(call)
+                    if result.startswith(("ERROR", "DENEGADO")):
+                        failed[key] = result
                 self.messages.append({"role": "tool", "tool_name": call.name, "content": result})
                 yield Event("tool_result", result, call.name, call.arguments)
+                if blocked >= MAX_REPEATED_CALLS:
+                    yield Event("error", "Detuve el bucle: el modelo insistió con la misma llamada fallida.")
+                    return
 
         yield Event("error", f"Me detuve tras {self.max_steps} pasos sin llegar a una respuesta.")
 

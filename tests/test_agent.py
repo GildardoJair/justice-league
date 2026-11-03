@@ -140,3 +140,35 @@ def test_emite_stats_cuando_hay_metricas(tmp_path):
     eventos = list(agent.run("hey"))
     assert [e.kind for e in eventos] == ["stats", "answer"]
     assert eventos[0].args == {"prompt_tokens": 10, "eval_tokens": 5, "eval_seconds": 0.5}
+
+
+def test_llamada_repetida_que_fallo_se_bloquea_sin_ejecutarse(tmp_path):
+    agent, model = hacer_agente(
+        tmp_path, [llamada("read_file", path="no.txt"), llamada("read_file", path="no.txt"), ModelReply("me rindo")]
+    )
+    eventos = list(agent.run("lee no.txt"))
+    assert eventos[-1].kind == "answer"
+    assert model.seen[1][-1]["content"].startswith("ERROR")
+    assert model.seen[2][-1]["content"].startswith("REPETIDO")
+
+
+def test_si_insiste_se_corta_el_bucle(tmp_path):
+    agent, _ = hacer_agente(tmp_path, [llamada("read_file", path="no.txt")] * 6)
+    eventos = list(agent.run("lee no.txt"))
+    assert eventos[-1].kind == "error" and "misma llamada" in eventos[-1].text
+    assert sum(e.kind == "tool_call" for e in eventos) == 3  # 1 ejecutada + 2 bloqueadas
+
+
+def test_repetir_una_llamada_exitosa_no_se_bloquea(tmp_path):
+    agent, _ = hacer_agente(tmp_path, [llamada("list_dir"), llamada("list_dir"), llamada("list_dir"), ModelReply("ok")])
+    eventos = list(agent.run("x"))
+    assert eventos[-1].kind == "answer"
+
+
+def test_el_bloqueo_se_reinicia_en_cada_turno(tmp_path):
+    agent, model = hacer_agente(
+        tmp_path, [llamada("read_file", path="no.txt"), ModelReply("a"), llamada("read_file", path="no.txt"), ModelReply("b")]
+    )
+    list(agent.run("uno"))
+    list(agent.run("dos"))
+    assert model.seen[3][-1]["content"].startswith("ERROR")  # se vuelve a ejecutar, no "REPETIDO"
