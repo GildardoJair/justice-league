@@ -119,6 +119,16 @@ class OllamaChat:
         yield ModelReply(content="".join(parts), tool_calls=tool_calls, **metrics)
 
 
+def list_models(host: str = "http://localhost:11434") -> list[str]:
+    """Nombres de los modelos descargados en Ollama (vacío si no responde)."""
+    try:
+        response = httpx.get(f"{host.rstrip('/')}/api/tags", timeout=5)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return []
+    return sorted(m["name"] for m in response.json().get("models", []))
+
+
 def _metrics(body: dict[str, Any]) -> dict[str, Any]:
     """Cifras del último mensaje de Ollama. `eval_duration` viene en nanosegundos."""
     return {

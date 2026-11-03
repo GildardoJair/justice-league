@@ -86,4 +86,15 @@ Límite conocido: esto valida rutas, no aísla procesos. Cuando llegue la ejecuc
 
 - Herramienta de estado del hardware: hoy el agente no puede consultar GPU/VRAM, CPU, RAM ni disco (p. ej. envolver `nvidia-smi`/`ollama ps` en una herramienta de solo lectura). Útil para E-001 y para que el agente sepa cuánta VRAM libre tiene antes de cambiar de modelo.
 
+### Líneas de investigación a seguir
+
+Un terreno donde se quiere aportar: hacer que los LLM (densos y MoE) rindan más con equipo modesto. Nombres y cifras anotados de memoria; verificar antes de citarlos.
+
+- **Memoria y ancho de banda:** cuantización agresiva (AWQ, GPTQ, K-quants, BitNet), KV cache más pequeño (cuantizado, GQA, MLA, descarte de tokens), offloading con *prefetch* de expertos en MoE.
+- **Cálculo por token:** decodificación especulativa (Medusa, EAGLE), atención eficiente (FlashAttention, Mamba/RWKV e híbridos), dispersión y salida temprana.
+- **Razonamiento sin más tamaño:** cómputo en inferencia (pensar más, votar, verificar), aprendizaje por refuerzo con recompensas verificables, destilación, mejores datos y uso de herramientas.
+- **Entrenar y adaptar con poco:** LoRA/QLoRA, fusión de modelos y Branch-Train-MiX, entrenamiento distribuido.
+
+Para probar a escala doméstica: decodificación especulativa (7B de borrador + 14B), KV cuantizado (E-001), MoE con reparto GPU/RAM/SSD (E-005, E-006) y el bucle de ejecución y verificación del agente (Fase 4).
+
 Los nombres de personajes de DC son un homenaje personal y se usan como nombres internos.

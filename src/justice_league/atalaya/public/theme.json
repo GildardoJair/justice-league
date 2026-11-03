@@ -1,0 +1,21 @@
+{
+  "variables": {
+    "light": {
+      "--background": "0 0% 100%",
+      "--foreground": "222 47% 11%",
+      "--primary": "217 91% 45%",
+      "--primary-foreground": "0 0% 100%",
+      "--accent": "217 60% 94%",
+      "--ring": "217 91% 45%"
+    },
+    "dark": {
+      "--background": "222 30% 8%",
+      "--foreground": "210 20% 94%",
+      "--card": "222 28% 11%",
+      "--primary": "217 91% 60%",
+      "--primary-foreground": "222 47% 8%",
+      "--accent": "222 25% 16%",
+      "--ring": "217 91% 60%"
+    }
+  }
+}

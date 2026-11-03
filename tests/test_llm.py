@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from justice_league.llm import OllamaChat, OllamaError
+from justice_league.llm import OllamaChat, OllamaError, list_models
 
 
 def respuesta(json_body, status=200):
@@ -91,3 +91,17 @@ def test_chat_lee_metricas(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda *a, **k: respuesta(cuerpo))
     reply = OllamaChat("m").chat([])
     assert (reply.prompt_tokens, reply.eval_tokens, reply.eval_seconds) == (50, 20, 2.0)
+
+
+def test_list_models(monkeypatch):
+    cuerpo = {"models": [{"name": "qwen2.5:14b"}, {"name": "llama3.2:latest"}]}
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: httpx.Response(200, json=cuerpo, request=httpx.Request("GET", "http://x")))
+    assert list_models() == ["llama3.2:latest", "qwen2.5:14b"]
+
+
+def test_list_models_sin_ollama(monkeypatch):
+    def falla(*a, **k):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(httpx, "get", falla)
+    assert list_models() == []

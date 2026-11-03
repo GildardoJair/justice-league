@@ -161,5 +161,6 @@ def atalaya(
         raise typer.Exit(1)
 
     entry = Path(__file__).parent / "atalaya" / "app.py"
-    env = {**os.environ, "JL_WORKSPACE": str(workspace.resolve())}
+    # CHAINLIT_APP_ROOT: Chainlit busca su config, tema y avatares en esa carpeta (no en la actual).
+    env = {**os.environ, "JL_WORKSPACE": str(workspace.resolve()), "CHAINLIT_APP_ROOT": str(entry.parent)}
     subprocess.run([sys.executable, "-m", "chainlit", "run", str(entry), "--port", str(port)], env=env, check=False)

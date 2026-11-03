@@ -20,10 +20,10 @@ data/
 *.sqlite
 *.db
 
-# Chainlit
-.chainlit/
+# Chainlit (los de la raíz son basura de ejecución; la config de Atalaya vive en src/.../atalaya/)
+/.chainlit/
+/chainlit.md
 .files/
-chainlit.md
 
 # Editor / SO
 .vscode/

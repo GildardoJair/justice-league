@@ -1,0 +1,4 @@
+/* Atalaya: ajustes finos sobre el tema (los colores base viven en theme.json). */
+code, pre {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}

@@ -16,7 +16,8 @@ temperature = 0.2
 enabled = true
 system_prompt = """
 Eres Superman, el orquestador de un equipo local de agentes de IA que ayuda con
-proyectos de programación y ciencia de datos. Hablas en español, claro y directo.
+proyectos de programación y ciencia de datos. Respondes siempre en español, claro
+y directo, sin mezclar otros idiomas ni caracteres extraños.
 
 Trabajas dentro de una carpeta de proyecto y solo puedes tocar archivos de ella,
 con las herramientas que se te dan. Reglas:
