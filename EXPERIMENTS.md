@@ -43,7 +43,7 @@ Una entrada por experimento. Regla: escribe la **hipótesis antes** de correrlo 
 - **Hipótesis:** `qwen3:30b-a3b` (≈19 GB, ~3B parámetros activos por token) rendirá cerca de `qwen2.5:14b` en tok/s aunque no quepa entero en la VRAM, porque por token solo lee una fracción de sus pesos. `gpt-oss:20b` (≈13 GB) servirá de punto de comparación casi en GPU.
 - **Qué variar:** modelo (`qwen2.5:14b` denso, `qwen3:30b-a3b`, `gpt-oss:20b`). Fijo: prompt, `num_ctx` (8k), temperatura.
 - **Cómo medir:** tok/s, `ollama ps` (reparto GPU/CPU) y `nvidia-smi`. Anotar también si el tool calling funciona (enlaza con E-002).
-- **Resultado:** _pendiente_
+- **Resultado:** parcial, ver la bitácora del 2026-11-03 (prompt corto y prompt largo). Faltan `gpt-oss:20b` y el tool calling.
 
 ### E-006 · Modelo MoE enorme con pesos en el SSD (mmap)
 - **Hipótesis:** `gpt-oss:120b` (≈65 GB, MoE con ~5B activos) no cabe en 12 GB de VRAM + 31 GB de RAM, pero con mmap funcionará a ~1 tok/s o menos, porque por token solo lee ~3 GB de expertos. Un denso equivalente (`llama3.3:70b` Q4, ≈42 GB) irá mucho peor (~0,3 tok/s).
@@ -74,3 +74,26 @@ Una entrada por experimento. Regla: escribe la **hipótesis antes** de correrlo 
   - Los tok/s son muy estables entre corridas (variación <1 %), así que con 3 repeticiones basta para este experimento.
   - Los tiempos de carga (2-4 s) no son comparables con los de otras pruebas: los pesos ya estaban en la caché de Linux.
   - **Siguiente paso:** probar valores intermedios (10k, 12k, 14k) para afinar el límite, y repetir con el KV cache cuantizado (`OLLAMA_KV_CACHE_TYPE=q8_0` con `OLLAMA_FLASH_ATTENTION=1`), que debería correr ese límite hacia arriba.
+
+### 2026-11-03 · E-005 · MoE (`qwen3:30b-a3b`) frente a denso (`qwen2.5:14b`), parcial
+- **Cómo lo corrí:** por la API `/api/chat` en streaming, `num_ctx` 8192, temperatura 0,2, `think: false`, modelo descargado antes de empezar (`ollama stop`). Dos pruebas:
+  1. *Prompt corto* (36 tokens), 250 tokens generados, una corrida; `ollama ps` a mitad de la generación.
+  2. *Prompt largo* (~3.900 tokens: `README.md` + `agent.py` + inicio de `llm.py` + pregunta "resume en 3 líneas"), 100 tokens generados, 3 corridas por modelo. Cada petición lleva un identificador aleatorio al principio para que Ollama no reutilice el cache del prompt anterior. Velocidades de `eval_count / eval_duration` y `prompt_eval_count / prompt_eval_duration`.
+- **Resultado:**
+
+| | `qwen3:30b-a3b` (MoE) | `qwen2.5:14b` (denso) |
+|---|---|---|
+| Reparto (prompt corto) | 42 % CPU / 58 % GPU, 19 GB | 100 % GPU, 10 GB |
+| Generación, prompt corto | 30,7 tok/s | 34,1 tok/s |
+| Lectura del prompt largo (prefill) | ~644 tok/s | ~1.010 tok/s |
+| Generación con ~3.900 tokens de contexto | 19,1-19,5 tok/s | 29,7 tok/s |
+| Primer token con el modelo cargado (prompt largo) | 6,2 s | 4,0 s |
+| Carga en frío | 12,2 s (33,4 s la primera vez) | 5,7 s |
+
+- **Conclusión:**
+  - El prefill de 19 tok/s del prompt corto era un artefacto (calentamiento de la carga con solo 36 tokens). Con un prompt real el MoE lee ~644 tok/s, un 36 % menos que el denso, pero no es un problema.
+  - El MoE pierde más con contexto largo: la generación baja de 30,7 a ~19,3 tok/s (**-37 %**), mientras que el denso baja de 34,1 a 29,7 (-13 %). Hipótesis, sin comprobar: con parte del modelo en la CPU, el cache de atención de las capas en CPU se lee más caro cuando crece el contexto.
+  - Con prompts largos (RAG, archivos grandes) la ventaja del MoE se reduce: ~65 % de la velocidad del denso, frente al ~90 % con prompts cortos.
+  - Mi hipótesis inicial (el MoE rinde cerca del denso) se cumple solo con contexto corto.
+  - **Límites:** 3 corridas de un único prompt; no se evaluó la calidad de la respuesta ni el tool calling. Falta `gpt-oss:20b`.
+  - **Siguiente paso:** repetir con el tool calling real de `jl chat -m qwen3:30b-a3b` y probar a 16k de contexto, donde el MoE seguramente cae más.
