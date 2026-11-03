@@ -29,3 +29,6 @@ data/
 .vscode/
 .idea/
 .DS_Store
+
+# Traducciones que Chainlit genera al arrancar
+src/justice_league/atalaya/.chainlit/translations/
