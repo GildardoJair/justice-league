@@ -7,7 +7,7 @@
 Concepto: *generador como flujo de eventos*. `run()` no imprime nada ni sabe de
 interfaces: va "emitiendo" eventos (llamada a herramienta, resultado, respuesta)
 y quien lo consuma decide cómo mostrarlos. Los eventos "token" son fragmentos de
-texto en vivo; "answer" sigue llegando al final con el texto completo. La CLI los pinta con Rich; Atalaya,
+texto en vivo; "stats" trae las métricas de cada llamada al modelo; "answer" sigue llegando al final con el texto completo. La CLI los pinta con Rich; Atalaya,
 como pasos del chat. Ese es el límite entre el núcleo y los adaptadores.
 """
 
@@ -24,7 +24,7 @@ from .tools import ToolRegistry
 
 @dataclass
 class Event:
-    kind: Literal["token", "tool_call", "tool_result", "answer", "error"]
+    kind: Literal["token", "stats", "tool_call", "tool_result", "answer", "error"]
     text: str = ""
     name: str = ""
     args: dict[str, Any] = field(default_factory=dict)
@@ -56,6 +56,8 @@ class Agent:
         # la misma herramienta una y otra vez.
         for _ in range(self.max_steps):
             reply = yield from self._ask_model()
+            if reply.eval_tokens:
+                yield Event("stats", args={"prompt_tokens": reply.prompt_tokens, "eval_tokens": reply.eval_tokens, "eval_seconds": reply.eval_seconds})
 
             assistant_message: dict[str, Any] = {"role": "assistant", "content": reply.content}
             if reply.tool_calls:

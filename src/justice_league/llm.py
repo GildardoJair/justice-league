@@ -25,6 +25,10 @@ class ToolCall:
 class ModelReply:
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # Métricas que Ollama reporta al terminar (0 si no las dio, p. ej. en los tests).
+    prompt_tokens: int = 0
+    eval_tokens: int = 0
+    eval_seconds: float = 0.0
 
 
 class ChatModel(Protocol):
@@ -75,10 +79,12 @@ class OllamaChat:
         except httpx.HTTPStatusError as exc:
             raise OllamaError(f"Ollama respondió {exc.response.status_code}: {exc.response.text[:300]}") from exc
 
-        message = response.json().get("message", {})
+        body = response.json()
+        message = body.get("message", {})
         return ModelReply(
             content=message.get("content") or "",
             tool_calls=[_parse_tool_call(c) for c in message.get("tool_calls") or []],
+            **_metrics(body),
         )
 
     def stream(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Iterator[str | ModelReply]:
@@ -91,6 +97,7 @@ class OllamaChat:
         payload = self._payload(messages, tools, stream=True)
         parts: list[str] = []
         tool_calls: list[ToolCall] = []
+        metrics: dict[str, Any] = {}
         try:
             with httpx.stream("POST", f"{self.host}/api/chat", json=payload, timeout=self.timeout) as response:
                 if response.status_code >= 400:
@@ -99,14 +106,26 @@ class OllamaChat:
                 for line in response.iter_lines():
                     if not line:
                         continue
-                    message = json.loads(line).get("message", {})
+                    chunk = json.loads(line)
+                    message = chunk.get("message", {})
+                    if chunk.get("done"):
+                        metrics = _metrics(chunk)
                     if text := message.get("content"):
                         parts.append(text)
                         yield text
                     tool_calls.extend(_parse_tool_call(c) for c in message.get("tool_calls") or [])
         except httpx.ConnectError as exc:
             raise OllamaError(f"No pude conectar con Ollama en {self.host}. ¿Está corriendo (`ollama serve`)?") from exc
-        yield ModelReply(content="".join(parts), tool_calls=tool_calls)
+        yield ModelReply(content="".join(parts), tool_calls=tool_calls, **metrics)
+
+
+def _metrics(body: dict[str, Any]) -> dict[str, Any]:
+    """Cifras del último mensaje de Ollama. `eval_duration` viene en nanosegundos."""
+    return {
+        "prompt_tokens": body.get("prompt_eval_count") or 0,
+        "eval_tokens": body.get("eval_count") or 0,
+        "eval_seconds": (body.get("eval_duration") or 0) / 1e9,
+    }
 
 
 def _parse_tool_call(raw: dict[str, Any]) -> ToolCall:

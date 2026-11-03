@@ -84,3 +84,10 @@ def test_stream_emite_fragmentos_y_respuesta_final(monkeypatch):
     assert items[:2] == ["Ho", "la"]
     assert items[2].content == "Hola" and items[2].tool_calls[0].arguments == {"a": 1}
     assert capturado["payload"]["stream"] is True
+
+
+def test_chat_lee_metricas(monkeypatch):
+    cuerpo = {"message": {"content": "x"}, "prompt_eval_count": 50, "eval_count": 20, "eval_duration": 2_000_000_000}
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: respuesta(cuerpo))
+    reply = OllamaChat("m").chat([])
+    assert (reply.prompt_tokens, reply.eval_tokens, reply.eval_seconds) == (50, 20, 2.0)

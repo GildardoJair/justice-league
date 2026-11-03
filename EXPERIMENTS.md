@@ -33,6 +33,18 @@ Una entrada por experimento. Regla: escribe la **hipótesis antes** de correrlo 
 - **Cómo medir:** tiempo de la primera respuesta tras alternar Superman ↔ Mr. Terrific, con y sin `OLLAMA_KEEP_ALIVE` alto.
 - **Resultado:** _pendiente_
 
+### E-004 · Offload híbrido de un modelo denso grande
+- **Hipótesis:** un modelo denso de ~30B (≈18-20 GB cuantizado) con más de la mitad de las capas en RAM irá a la velocidad de la CPU (3-6 tok/s), porque las capas se ejecutan en serie y cada token espera a la parte más lenta.
+- **Qué variar:** número de capas en GPU (`num_gpu`). Fijo: modelo, prompt, `num_ctx` (8k), temperatura.
+- **Cómo medir:** tok/s de la barra de estado de `jl chat`, porcentaje GPU/CPU en `ollama ps`, VRAM con `nvidia-smi`.
+- **Resultado:** _pendiente_
+
+### E-005 · MoE con reparto GPU/RAM frente a un denso
+- **Hipótesis:** `qwen3:30b-a3b` (≈19 GB, ~3B parámetros activos por token) rendirá cerca de `qwen2.5:14b` en tok/s aunque no quepa entero en la VRAM, porque por token solo lee una fracción de sus pesos. `gpt-oss:20b` (≈13 GB) servirá de punto de comparación casi en GPU.
+- **Qué variar:** modelo (`qwen2.5:14b` denso, `qwen3:30b-a3b`, `gpt-oss:20b`). Fijo: prompt, `num_ctx` (8k), temperatura.
+- **Cómo medir:** tok/s, `ollama ps` (reparto GPU/CPU) y `nvidia-smi`. Anotar también si el tool calling funciona (enlaza con E-002).
+- **Resultado:** _pendiente_
+
 ## Bitácora
 
 _(sin entradas todavía)_

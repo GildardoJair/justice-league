@@ -133,3 +133,10 @@ def test_con_streaming_emite_tokens_y_luego_la_respuesta(tmp_path):
     eventos = list(agent.run("hey"))
     assert [(e.kind, e.text) for e in eventos] == [("token", "ho"), ("token", "la"), ("answer", "hola")]
     assert agent.messages[-1] == {"role": "assistant", "content": "hola"}
+
+
+def test_emite_stats_cuando_hay_metricas(tmp_path):
+    agent, _ = hacer_agente(tmp_path, [ModelReply("hola", prompt_tokens=10, eval_tokens=5, eval_seconds=0.5)])
+    eventos = list(agent.run("hey"))
+    assert [e.kind for e in eventos] == ["stats", "answer"]
+    assert eventos[0].args == {"prompt_tokens": 10, "eval_tokens": 5, "eval_seconds": 0.5}

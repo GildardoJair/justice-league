@@ -23,6 +23,7 @@ from rich.table import Table
 from .config import find_roles_file, load_settings
 from .factory import build_agent
 from .llm import OllamaError
+from .ui import banner, stats_line
 from .zona_fantasma import SandboxError
 
 app = typer.Typer(help="Justice League: equipo local de agentes de IA.", no_args_is_help=True)
@@ -49,14 +50,7 @@ def chat(
         console.print(f"[red]{exc.args[0]}[/]")
         raise typer.Exit(1)
     active = settings.roles[role]
-    console.print(
-        Panel(
-            f"[bold]{active.name}[/] · modelo [cyan]{model or active.model}[/]\n"
-            f"Carpeta: {workspace.resolve()}\n"
-            "Comandos: [bold]/reset[/] reinicia la conversación · [bold]/salir[/] termina",
-            title="Justice League",
-        )
-    )
+    console.print(banner(active.name, model or active.model, workspace.resolve(), active.num_ctx))
 
     while True:
         try:
@@ -75,8 +69,16 @@ def chat(
 
         live: Live | None = None
         buffer = ""
+        last_stats: dict[str, Any] | None = None
+        # Spinner mientras el modelo carga o piensa (antes del primer token).
+        status = console.status("[dim]pensando…[/]", spinner="dots")
+        status.start()
         try:
             for event in agent.run(text):
+                status.stop()
+                if event.kind == "stats":
+                    last_stats = event.args
+                    continue
                 if event.kind == "token":
                     if live is None:
                         live = Live(console=console, refresh_per_second=12, vertical_overflow="visible")
@@ -94,6 +96,7 @@ def chat(
                 elif event.kind == "tool_result":
                     shown = event.text if len(event.text) < 300 else event.text[:300] + " …"
                     console.print(f"[dim]   ↳ {shown}[/]")
+                    status.start()  # el modelo vuelve a pensar con el resultado
                 elif event.kind == "answer":
                     console.print(Panel(Markdown(event.text), title=active.name, border_style="blue"))
                 else:
@@ -101,8 +104,11 @@ def chat(
         except OllamaError as exc:
             console.print(f"[red]{exc}[/]")
         finally:
+            status.stop()
             if live is not None:
                 live.stop()
+        if last_stats:
+            console.print(stats_line(last_stats, active.num_ctx))
 
 
 @app.command()
