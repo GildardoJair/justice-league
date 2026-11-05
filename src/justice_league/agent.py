@@ -7,13 +7,15 @@
 Concepto: *generador como flujo de eventos*. `run()` no imprime nada ni sabe de
 interfaces: va "emitiendo" eventos (llamada a herramienta, resultado, respuesta)
 y quien lo consuma decide cómo mostrarlos. Los eventos "token" son fragmentos de
-texto en vivo; "stats" trae las métricas de cada llamada al modelo; "answer" sigue llegando al final con el texto completo. La CLI los pinta con Rich; Atalaya,
+texto en vivo; "stats" trae las métricas de cada llamada al modelo; "answer" sigue llegando al final con el texto completo; "summary" cierra el turno con sus
+tiempos y el contexto usado. La CLI los pinta con Rich; Atalaya,
 como pasos del chat. Ese es el límite entre el núcleo y los adaptadores.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -29,7 +31,7 @@ MAX_REPEATED_CALLS = 2
 
 @dataclass
 class Event:
-    kind: Literal["token", "stats", "notice", "tool_call", "tool_result", "answer", "error"]
+    kind: Literal["token", "stats", "notice", "tool_call", "tool_result", "answer", "error", "summary"]
     text: str = ""
     name: str = ""
     args: dict[str, Any] = field(default_factory=dict)
@@ -49,6 +51,8 @@ class Agent:
         self.approve = approve
         self.max_steps = max_steps
         self._notice = ""
+        self._replies: list[ModelReply] = []  # llamadas al modelo del turno en curso
+        self._waited = 0.0  # segundos esperando al usuario (aprobaciones) en el turno en curso
         # El historial vive en el agente: una instancia = una conversación.
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
@@ -68,8 +72,34 @@ class Agent:
         self._notice = ""
         self.messages.append({"role": "user", "content": text})
 
+        started = time.perf_counter()
+        self._replies, self._waited = [], 0.0
         yield from self._turn()
         yield from self._flush()
+        if any(r.eval_tokens for r in self._replies):  # sin métricas (p. ej. modelo falso) no hay resumen
+            yield Event("summary", args=self._summary(time.perf_counter() - started - self._waited))
+
+    def _summary(self, seconds: float) -> dict[str, Any]:
+        """Cifras del turno completo. El tiempo no cuenta lo que el usuario tardó en aprobar."""
+        first, last = self._replies[0], self._replies[-1]
+        return {
+            "seconds": seconds,
+            "calls": len(self._replies),
+            "load_seconds": sum(r.load_seconds for r in self._replies),
+            "first_token_seconds": first.first_token_seconds,
+            "eval_tokens": sum(r.eval_tokens for r in self._replies),
+            "eval_seconds": sum(r.eval_seconds for r in self._replies),
+            # Lo que ocupa la conversación tras la última llamada: su prompt + lo que generó.
+            "context_tokens": last.prompt_tokens + last.eval_tokens,
+            "num_ctx": getattr(self.model, "num_ctx", 0),
+        }
+
+    def _approve(self, name: str, args: dict[str, Any], preview: str | None) -> bool:
+        waiting = time.perf_counter()
+        try:
+            return self.approve(name, args, preview)
+        finally:
+            self._waited += time.perf_counter() - waiting
 
     def _flush(self) -> Iterator[Event]:
         """Fin del turno: si el modelo dejó cambios preparados, pide UNA aprobación con el diff combinado."""
@@ -77,7 +107,7 @@ class Agent:
         if staging is None or not staging.pending():
             return
         names = ", ".join(staging.names())
-        if self.approve("aplicar_cambios", {"archivos": staging.names()}, staging.diff()):
+        if self._approve("aplicar_cambios", {"archivos": staging.names()}, staging.diff()):
             staging.apply()
             yield Event("notice", f"Cambios aplicados: {names}")
             self._notice = f"[Sistema: el usuario aprobó y se aplicaron los cambios en {names}.]"
@@ -96,8 +126,9 @@ class Agent:
         # la misma herramienta una y otra vez.
         for _ in range(self.max_steps):
             reply = yield from self._ask_model()
+            self._replies.append(reply)
             if reply.eval_tokens:
-                yield Event("stats", args={"prompt_tokens": reply.prompt_tokens, "eval_tokens": reply.eval_tokens, "eval_seconds": reply.eval_seconds})
+                yield Event("stats", args=_metrics_of(reply))
 
             assistant_message: dict[str, Any] = {"role": "assistant", "content": reply.content}
             if reply.tool_calls:
@@ -153,10 +184,23 @@ class Agent:
         try:
             if tool.needs_approval:
                 preview = tool.preview(**call.arguments) if tool.preview else None
-                if not self.approve(call.name, call.arguments, preview):
+                if not self._approve(call.name, call.arguments, preview):
                     return "DENEGADO: el usuario no aprobó esta acción. No la reintentes sin preguntar."
             return tool.fn(**call.arguments)
         except TypeError as exc:  # argumentos faltantes o con nombre equivocado
             return f"ERROR: argumentos inválidos para '{call.name}': {exc}"
         except Exception as exc:  # incluye SandboxError y errores de E/S
             return f"ERROR: {type(exc).__name__}: {exc}"
+
+
+def _metrics_of(reply: ModelReply) -> dict[str, Any]:
+    """Las métricas de una llamada (sin el texto ni las herramientas)."""
+    return {
+        "prompt_tokens": reply.prompt_tokens,
+        "eval_tokens": reply.eval_tokens,
+        "eval_seconds": reply.eval_seconds,
+        "load_seconds": reply.load_seconds,
+        "prompt_seconds": reply.prompt_seconds,
+        "total_seconds": reply.total_seconds,
+        "first_token_seconds": reply.first_token_seconds,
+    }

@@ -170,8 +170,40 @@ def test_con_streaming_emite_tokens_y_luego_la_respuesta(tmp_path):
 def test_emite_stats_cuando_hay_metricas(tmp_path):
     agent, _ = hacer_agente(tmp_path, [ModelReply("hola", prompt_tokens=10, eval_tokens=5, eval_seconds=0.5)])
     eventos = list(agent.run("hey"))
-    assert [e.kind for e in eventos] == ["stats", "answer"]
-    assert eventos[0].args == {"prompt_tokens": 10, "eval_tokens": 5, "eval_seconds": 0.5}
+    assert [e.kind for e in eventos] == ["stats", "answer", "summary"]
+    assert eventos[0].args["prompt_tokens"] == 10 and eventos[0].args["eval_seconds"] == 0.5
+
+
+def test_resumen_del_turno_suma_las_llamadas_y_mide_el_contexto_de_la_ultima(tmp_path):
+    (tmp_path / "a.txt").write_text("hola")
+    primera = ModelReply("", [ToolCall("read_file", {"path": "a.txt"})], prompt_tokens=100, eval_tokens=10,
+                         eval_seconds=1.0, load_seconds=5.0, first_token_seconds=6.0)
+    segunda = ModelReply("listo", prompt_tokens=150, eval_tokens=30, eval_seconds=1.0, load_seconds=0.1)
+    agent, _ = hacer_agente(tmp_path, [primera, segunda])
+    agent.model.num_ctx = 8192
+    resumen = list(agent.run("lee a.txt"))[-1]
+    assert resumen.kind == "summary"
+    a = resumen.args
+    assert a["calls"] == 2 and a["eval_tokens"] == 40 and a["eval_seconds"] == 2.0
+    assert a["load_seconds"] == pytest.approx(5.1) and a["first_token_seconds"] == 6.0
+    assert a["context_tokens"] == 180 and a["num_ctx"] == 8192
+
+
+def test_el_tiempo_del_turno_no_cuenta_la_espera_de_aprobacion(tmp_path):
+    import time
+
+    pedidas = []
+
+    def lento(name, args, preview):
+        pedidas.append(name)
+        time.sleep(0.3)
+        return True
+
+    reply = ModelReply("", [ToolCall("write_file", {"path": "n.txt", "content": "x"})], eval_tokens=1, eval_seconds=0.1)
+    agent, _ = hacer_agente(tmp_path, [reply, ModelReply("hecho", eval_tokens=1, eval_seconds=0.1)], approve=lento)
+    resumen = list(agent.run("crea n.txt"))[-1]
+    assert pedidas and (tmp_path / "n.txt").read_text() == "x"
+    assert resumen.kind == "summary" and resumen.args["seconds"] < 0.2
 
 
 def test_llamada_repetida_que_fallo_se_bloquea_sin_ejecutarse(tmp_path):

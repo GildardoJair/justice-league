@@ -38,6 +38,7 @@ Un rol es **configuración** (modelo + prompt), no código: viven en [`roles.tom
 | Recuperador | **Flash** | búsqueda vectorial + BM25 + rerank | `flash/`, Fase 1-2 |
 | Almacén vectorial | **Fortaleza de la Soledad** | Chroma o LanceDB | `fortaleza/`, Fase 1 |
 | Grafo de conocimiento | **Brainiac** | Kuzu o Neo4j | `brainiac/`, Fase 3 |
+| Diagnóstico del equipo | **Cyborg** | GPU, CPU, RAM y modelo cargado (psutil + NVML) | `cyborg/`, activo: panel de Atalaya y `jl doctor` |
 | Sandbox | **Zona Fantasma** | aislamiento de archivos y, luego, de código | `zona_fantasma/`, archivos listo |
 | Memoria | *(sin nombre)* | recuerdo entre sesiones | pendiente |
 | Guardián de permisos | *(sin nombre)* | aprobación humana | `permissions.py` |
@@ -50,7 +51,7 @@ Requiere [uv](https://docs.astral.sh/uv/) y Ollama corriendo.
 uv sync                      # núcleo + CLI
 uv sync --extra atalaya      # además, la interfaz web
 
-uv run jl doctor             # ¿responde Ollama? ¿están los modelos?
+uv run jl doctor             # estado del equipo; ¿responde Ollama? ¿están los modelos?
 uv run jl roles              # roles configurados
 uv run jl chat -w ~/mi-proyecto
 uv run jl chat -m qwen2.5:7b-instruct   # modelo más ligero para iterar

@@ -8,6 +8,7 @@ funciona igual con Ollama, con llama.cpp, o con un modelo falso en los tests.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -29,6 +30,11 @@ class ModelReply:
     prompt_tokens: int = 0
     eval_tokens: int = 0
     eval_seconds: float = 0.0
+    load_seconds: float = 0.0  # cargar el modelo en memoria (~0,1 s si ya estaba cargado)
+    prompt_seconds: float = 0.0  # leer el prompt (prefill); baja mucho si Ollama lo tenía en cache
+    total_seconds: float = 0.0  # todo lo que tardó Ollama en esta llamada
+    # Medido por nosotros: desde que se envía la petición hasta el primer fragmento (solo en streaming).
+    first_token_seconds: float | None = None
 
 
 class ChatModel(Protocol):
@@ -98,6 +104,8 @@ class OllamaChat:
         parts: list[str] = []
         tool_calls: list[ToolCall] = []
         metrics: dict[str, Any] = {}
+        started = time.perf_counter()
+        first_token: float | None = None
         try:
             with httpx.stream("POST", f"{self.host}/api/chat", json=payload, timeout=self.timeout) as response:
                 if response.status_code >= 400:
@@ -108,6 +116,8 @@ class OllamaChat:
                         continue
                     chunk = json.loads(line)
                     message = chunk.get("message", {})
+                    if first_token is None and (message.get("content") or message.get("tool_calls")):
+                        first_token = time.perf_counter() - started
                     if chunk.get("done"):
                         metrics = _metrics(chunk)
                     if text := message.get("content"):
@@ -116,7 +126,7 @@ class OllamaChat:
                     tool_calls.extend(_parse_tool_call(c) for c in message.get("tool_calls") or [])
         except httpx.ConnectError as exc:
             raise OllamaError(f"No pude conectar con Ollama en {self.host}. ¿Está corriendo (`ollama serve`)?") from exc
-        yield ModelReply(content="".join(parts), tool_calls=tool_calls, **metrics)
+        yield ModelReply(content="".join(parts), tool_calls=tool_calls, first_token_seconds=first_token, **metrics)
 
 
 def list_models(host: str = "http://localhost:11434") -> list[str]:
@@ -129,12 +139,52 @@ def list_models(host: str = "http://localhost:11434") -> list[str]:
     return sorted(m["name"] for m in response.json().get("models", []))
 
 
+# Cliente HTTP compartido para las consultas frecuentes (/api/ps): crear uno nuevo en cada
+# llamada (lo que hace `httpx.get`) cuesta ~17 ms de CPU por su contexto SSL; reutilizarlo, <1 ms.
+_poll_client = httpx.Client(timeout=2)
+
+
+def running_models(host: str = "http://localhost:11434") -> list[dict[str, Any]] | None:
+    """Lo que Ollama tiene cargado en memoria ahora mismo (`/api/ps`), con su detalle; None si no responde.
+
+    Un modelo aparece aquí solo cuando ya terminó de cargar (comprobado con Ollama 0.21.2).
+    """
+    try:
+        response = _poll_client.get(f"{host.rstrip('/')}/api/ps")
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    return response.json().get("models", [])
+
+
+def loaded_models(host: str = "http://localhost:11434") -> list[str] | None:
+    """Solo los nombres de `running_models`."""
+    models = running_models(host)
+    return None if models is None else [m["name"] for m in models]
+
+
+def model_loaded(model: str, host: str = "http://localhost:11434") -> bool | None:
+    """¿Está `model` cargado en memoria? None si Ollama no responde. `llama3.2` equivale a `llama3.2:latest`."""
+    loaded = loaded_models(host)
+    if loaded is None:
+        return None
+    full = model if ":" in model else f"{model}:latest"
+    return full in loaded
+
+
 def _metrics(body: dict[str, Any]) -> dict[str, Any]:
-    """Cifras del último mensaje de Ollama. `eval_duration` viene en nanosegundos."""
+    """Cifras del último mensaje de Ollama. Las duraciones vienen en nanosegundos.
+
+    `prompt_eval_count` cuenta el prompt completo aunque Ollama reutilice su cache
+    (comprobado con Ollama 0.21.2), así que sirve para medir cuánto contexto se usa.
+    """
     return {
         "prompt_tokens": body.get("prompt_eval_count") or 0,
         "eval_tokens": body.get("eval_count") or 0,
         "eval_seconds": (body.get("eval_duration") or 0) / 1e9,
+        "load_seconds": (body.get("load_duration") or 0) / 1e9,
+        "prompt_seconds": (body.get("prompt_eval_duration") or 0) / 1e9,
+        "total_seconds": (body.get("total_duration") or 0) / 1e9,
     }
 
 

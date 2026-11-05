@@ -21,9 +21,10 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from .config import find_roles_file, load_settings
+from .cyborg import snapshot
 from .factory import build_agent
 from .llm import OllamaError
-from .ui import banner, stats_line
+from .ui import banner, hardware_table, summary_line
 from .zona_fantasma import SandboxError
 
 app = typer.Typer(help="Justice League: equipo local de agentes de IA.", no_args_is_help=True)
@@ -34,6 +35,19 @@ def _approve_in_terminal(name: str, args: dict[str, Any], preview: str | None) -
     body = Syntax(preview, "diff", theme="ansi_dark", word_wrap=True) if preview else str(args)
     console.print(Panel(body, title=f"🛡️  Permiso solicitado: {name}", border_style="yellow"))
     return typer.confirm("¿Aprobar?", default=False)
+
+
+def _make_reader():
+    """Lector de entrada. Con prompt_toolkit, un pegado multilínea llega como UN
+    solo mensaje (Enter envía; el texto pegado conserva sus saltos de línea).
+    Sin él, cae a console.input, que consume una línea por turno."""
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
+    except ImportError:
+        return lambda: console.input("[bold green]tú ›[/] ")
+    session: PromptSession[str] = PromptSession()
+    return lambda: session.prompt(HTML("<ansigreen><b>tú ›</b></ansigreen> "))
 
 
 @app.command()
@@ -52,9 +66,10 @@ def chat(
     active = settings.roles[role]
     console.print(banner(active.name, model or active.model, workspace.resolve(), active.num_ctx))
 
+    read_line = _make_reader()
     while True:
         try:
-            text = console.input("[bold green]tú ›[/] ").strip()
+            text = read_line().strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
             break
@@ -69,7 +84,7 @@ def chat(
 
         live: Live | None = None
         buffer = ""
-        last_stats: dict[str, Any] | None = None
+        summary: dict[str, Any] | None = None
         # Spinner mientras el modelo carga o piensa (antes del primer token).
         status = console.status("[dim]pensando…[/]", spinner="dots")
         status.start()
@@ -77,7 +92,9 @@ def chat(
             for event in agent.run(text):
                 status.stop()
                 if event.kind == "stats":
-                    last_stats = event.args
+                    continue  # métricas por llamada; al final llega el resumen del turno
+                if event.kind == "summary":
+                    summary = event.args
                     continue
                 if event.kind == "token":
                     if live is None:
@@ -109,8 +126,8 @@ def chat(
             status.stop()
             if live is not None:
                 live.stop()
-        if last_stats:
-            console.print(stats_line(last_stats, active.num_ctx))
+        if summary:
+            console.print(summary_line(summary))
 
 
 @app.command()
@@ -127,8 +144,10 @@ def roles() -> None:
 
 @app.command()
 def doctor() -> None:
-    """Comprueba que Ollama responde y que los modelos de los roles activos están descargados."""
+    """Muestra el estado del equipo y comprueba que Ollama responde y tiene los modelos de los roles activos."""
     settings = load_settings()
+    console.print(hardware_table(snapshot(settings.ollama_host, cpu_interval=0.5)))
+    console.print()
     try:
         response = httpx.get(f"{settings.ollama_host}/api/tags", timeout=5)
         response.raise_for_status()
